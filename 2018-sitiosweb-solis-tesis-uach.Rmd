@@ -1,0 +1,357 @@
+---
+title: "2018 Analisis de contenidos de sitios web"
+author: Solis D, Uribe Se
+output:
+  pdf_document: default
+  html_notebook: default
+---
+```{r}
+library(dplyr)
+library(tidytext)
+library(ggplot2)
+library(RColorBrewer)
+library(wordcloud)
+library(stringr)
+library(forcats)
+library (reshape2)
+```
+
+
+```{r}
+#Abrir y leer el Archivo. 
+df <- read.delim("20180809_Total-sitios-web - 2.csv", header = TRUE, sep = ";")
+```
+
+
+```{r}
+#Depuro los datos eliminado s?mbolos y n?meros. 
+df <- df %>% 
+  filter( grepl("\\w", df$texto)) %>% 
+  filter( !grepl("^[0-9]", df$texto))
+df
+```
+#I. Totales. 
+```{r}
+#Calculo el total de palabras en el data frame.
+Tdf  = colSums (df[2])
+Tdf
+#Calculo el total de palabras de USA.
+TdfUSA = df %>% 
+  filter(country == "USA")
+TdfUSA = colSums(TdfUSA [2])
+TdfUSA
+#Calculo el total de palabras de UK
+TdfUK = df %>% 
+  filter(country == "ING")
+TdfUK = colSums(TdfUK [2])
+TdfUK
+#Calculo el total de palabras por especialidad
+TdfEsp = df %>% 
+  filter(society == "PE")
+TdfEsp = colSums(TdfEsp [2])
+TdfEsp
+##Calculo el total de palabras por especialidad por pais
+TdfEspPais = df %>% 
+  filter(society == "PE") %>% 
+  filter(country == "EEUU")
+TdfEspPais = colSums(TdfEspPais [2])
+TdfEspPais
+```
+#II. Agregando nuevos datos. 
+```{r}
+#Agrego una nueva columna "Frec.total" = Cantidad de veces que se repite la palabra en la totalidad de los datos (sin importar pais ni sociedad). 
+df <- df %>% 
+  group_by(texto) %>% 
+  mutate(Frec.total = sum(n_texto))
+glimpse(df)
+```
+```{r}
+#Agrego una nueva columna " Frec.Rel.Total" = porcentaje de frecuencia de las palabras en la totalidad del texto (Sin importar pais ni sociedad)
+df <- df %>% 
+  mutate (Frec.Rel.Total = (Frec.total/Tdf) * 100) %>% 
+  arrange(desc(Frec.total))
+glimpse (df)
+```
+
+```{r}
+#Agrego una nueva columna " Frec.Pais" = Cantidad de veces que aparece la palabra en los datos de su respectivo pa?s. (Sin importar ni sociedad).
+
+## Para esto primero creo un nuevo df que me permita calcular la frecuencia de las palabras por pa?s.
+pal.pais <- df %>% 
+  select(texto, n_texto, country, Frec.total) %>% 
+   group_by(texto, country) %>% 
+  summarise (Frec.Pais = sum(n_texto)) %>% 
+  arrange(desc(Frec.Pais))
+pal.pais
+##Una vez calcuada la Frecuencia seg?n pa?s, la anexo al df original "df".
+df <- inner_join(df, pal.pais, by = NULL, type = "left", match = "all")
+glimpse (df)
+```
+```{r}
+#Agrego una nueva columna " Frec.Soc" = Cantidad de veces que aparece la palabra en los datos de su respectiva Especialidad. (Sin importar pais).
+
+## Para esto primero creo un nuevo df que me permita calcular la frecuencia de las palabras por pa?s.
+pal.soc <- df %>% 
+  select(texto, n_texto, society, Frec.total) %>% 
+   group_by(texto, society) %>% 
+  summarise (Frec.Soc = sum(n_texto)) %>% 
+  arrange(desc(Frec.Soc))
+pal.soc
+
+##Una vez calcuada la Frecuencia seg?n pa?s, la anexo al df original "df".
+df <- inner_join(df, pal.soc, by = NULL, type = "left", match = "all")
+glimpse (df)
+df
+```
+
+# III. Resultados
+##1. Palabras m?s frecuentes y su proporcion por pa?s.
+```{r}
+df %>% 
+  select(texto, country, Frec.total, Frec.Pais) %>% 
+  distinct() %>% 
+  filter(Frec.total > 186) %>% 
+  ggplot(aes(x = fct_reorder(texto, Frec.total) , y = Frec.Pais, fill = Frec.total)) +
+  geom_col() + 
+  labs(title = "Palabras m?s frecuentes y su distribuci?n por pa?s", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  #scale_y_log10()+
+  facet_grid(.~ country)
+  ggsave("Palabrasmasfrecuentestotal.png", width = 10, height = 5)
+```
+## 2. Palabras m?s frecuentes y su cantidad seg?n especialidad.
+```{r}
+df %>% 
+  select(texto, country, Frec.total, Frec.Soc, society) %>% 
+  distinct() %>% 
+  filter(Frec.total > 186) %>% 
+  ggplot(aes(x = fct_reorder(texto, Frec.total) , y = Frec.Soc, fill = Frec.total)) +
+  geom_col() + 
+  labs(title = "Palabras m?s frecuentes y su distribuci?n por especialidad", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  #scale_y_log10()+
+  facet_grid(.~ society)
+  ggsave("Palabrasmasfrecuentestotalsoc.png", width = 10, height = 10)
+```
+##3. 25 Palabras m?s frecuentes por Pa?s. 
+### a) EEUU.
+```{r}
+#Primero calculo las 25 palabras m?s frecuentes de USA.
+F.EEUU <- df  %>% 
+  select(texto,country,Frec.Pais) %>%
+  group_by(texto) %>% 
+  filter(country == "EEUU") %>% 
+  distinct() %>% 
+  arrange(desc(Frec.Pais))
+F.USA
+```
+###b) ING.
+```{r}
+F.ING <- df  %>% 
+  select(texto,country,Frec.Pais) %>%
+  group_by(texto) %>% 
+  filter(country == "ING") %>% 
+  distinct() %>% 
+  arrange(desc(Frec.Pais)) 
+F.ING
+```
+### c) Total.
+```{r}
+F.pais <- bind_rows(F.ING,F.USA) %>% 
+  arrange(desc(Frec.Pais)) %>% 
+  acast(fct_reorder (texto, Frec.Pais) ~ country, value.var = "Frec.Pais", fill = 0) %>%  comparison.cloud (scale=c(3,.7), colors = c ("indianred3","royalblue2"),
+                 title.size=2.5, max.words = 200, random.order=FALSE, use.r.layout=TRUE)
+
+#La explicacion de la nube de palabra comparativa : esta nube plotea la frecuencia de palabras segun el texto, se calcula pi,j que es el grado que cada palaba aparece en el texto y pj es el promedio en los diferentes documentos(Pi pi,j/ndocs).
+# El tama?o de cada palabra se asigna a su desviaci?n m?xima (maxi (pi, j - pj)), y su posici?n angular est? determinada por el documento donde se produce ese m?ximo. (FELLOWS 2018)
+```
+## 4. Palabras mas frecuentes por Sociedades.
+### Odontologia General
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "OG") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+    filter(Frec.Soc > 93) %>% 
+    ggplot(aes(x = fct_reorder(texto, Frec.Soc) , y = n_texto , fill= Frec.Soc)) +
+  geom_col() + 
+  labs(title = " Palabras m?s frecuentes en sitios de Odontolog?a General distribuidas seg?n pa?s", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  scale_y_log10()+
+  facet_grid (.~country)
+ggsave("PalabrasmasfrecuentesOG.png", width = 10, height = 5)
+```
+
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "OG") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+  filter(Frec.Soc > 40) %>% 
+  acast(fct_reorder (texto, Frec.Soc) ~ country, value.var = "Frec.Soc", fill = 0) %>%  comparison.cloud (scale=c(3,.7), colors = c ("indianred3","royalblue2"),
+                 title.size=2.5, max.words = 200, random.order=FALSE, use.r.layout=TRUE)
+```
+
+### Endodoncia
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "EN") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+  filter(Frec.Soc > 48) %>% 
+  ggplot(aes(x = fct_reorder(texto, Frec.Soc) , y = n_texto , fill= Frec.Soc)) +
+  geom_col() + 
+  labs(title = "Palabras m?s frecuentes en sitios de Endodoncia distribuidas seg?n pa?s", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  scale_y_log10()+
+  facet_grid (.~country)
+ggsave("PalabrasmasfrecuentesEndo.png", width = 10, height = 5)
+```
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "EN") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+  filter(Frec.Soc > 10) %>% 
+  acast(fct_reorder (texto, Frec.Soc) ~ country, value.var = "Frec.Soc", fill = 0) %>%  comparison.cloud (scale=c(3,.7), colors = c ("indianred3","royalblue2"),
+                 title.size=2.5, max.words = 200, random.order=FALSE, use.r.layout=TRUE)
+```
+
+### Implantologia
+```{r}
+  df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "IM") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+  filter(Frec.Soc > 10)%>% 
+  ggplot(aes(x = fct_reorder(texto, Frec.Soc) , y = n_texto , fill= Frec.Soc)) +
+  geom_col() + 
+  labs(title = "Palabras m?s frecuentes en sitios de Implantolog?a distribuidas seg?n pa?s", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  scale_y_log10()+
+  facet_grid (.~country)
+ggsave("PalabrasmasfrecuentesIMP.png", width = 10, height = 5)
+```
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "IM") %>% 
+  arrange(desc(Frec.Soc)) %>%
+   filter(Frec.Soc > 4) %>%
+  acast(fct_reorder (texto, Frec.Soc) ~ country, value.var = "Frec.Soc", fill = 0) %>%  comparison.cloud (scale=c(3,.7), colors = c ("indianred3","royalblue2"),
+                 title.size=2.5, max.words = 200, random.order=FALSE, use.r.layout=TRUE)
+```
+### Odontopediatria
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "OP") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+  filter(Frec.Soc > 20)%>% 
+  ggplot(aes(x = fct_reorder(texto, Frec.Soc) , y = n_texto , fill= Frec.Soc)) +
+  geom_col() + 
+  labs(title = "Palabras m?s frecuentes en sitios de Odontopediatr?a distribuidas seg?n pa?s", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  scale_y_log10()+
+  facet_grid (.~country)
+ggsave("PalabrasmasfrecuentesOPD.png", width = 10, height = 5)
+```
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "OP") %>% 
+  arrange(desc(Frec.Soc)) %>%
+  filter(Frec.Soc > 8) %>% 
+  acast(fct_reorder (texto, Frec.Soc) ~ country, value.var = "Frec.Soc", fill = 0) %>%  comparison.cloud (scale=c(3,.7), colors = c ("indianred3","royalblue2"),
+                 title.size=2.5, max.words = 200, random.order=FALSE, use.r.layout=TRUE)
+```
+### Ortodoncia
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "OR") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+  filter(Frec.Soc > 36)%>% 
+  ggplot(aes(x = fct_reorder(texto, Frec.Soc) , y = n_texto , fill= Frec.Soc)) +
+  geom_col() + 
+  labs(title = "Palabras m?s frecuentes en sitios de Ortodoncia distribuidas seg?n pa?s", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  scale_y_log10()+
+  facet_grid (.~country)
+ggsave("PalabrasmasfrecuentesORT.png", width = 10, height = 5)
+```
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "OR") %>% 
+  arrange(desc(Frec.Soc)) %>%
+  filter(Frec.Soc > 8) %>% 
+  acast(fct_reorder (texto, Frec.Soc) ~ country, value.var = "Frec.Soc", fill = 0) %>%  comparison.cloud (scale=c(3,.7), colors = c ("indianred3","royalblue2"),
+                 title.size=2.5, max.words = 200, random.order=FALSE, use.r.layout=TRUE)
+```
+### Periodoncia 
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "PE") %>% 
+  arrange(desc(Frec.Soc)) %>% 
+  filter(Frec.Soc > 29)%>% 
+  ggplot(aes(x = fct_reorder(texto, Frec.Soc) , y = n_texto , fill= Frec.Soc)) +
+  geom_col() + 
+  labs(title = "Palabras m?s frecuentes en sitios de Periodoncia distribuidas seg?n pa?s", x = "Palabra", y = "Frecuencia") +
+  theme_minimal() +
+  theme(plot.title = element_text(hjust = 0.5))+
+  coord_flip() + 
+  scale_y_log10()+
+  facet_grid (.~country)
+ggsave("PalabrasmasfrecuentesPER.png", width = 10, height = 5)
+```
+```{r}
+df %>% 
+  select(texto, n_texto, country, society, Frec.Soc) %>% 
+  filter(society == "PE") %>% 
+  arrange(desc(Frec.Soc)) %>%
+  filter(Frec.Soc > 15) %>% 
+  acast(fct_reorder (texto, Frec.Soc) ~ country, value.var = "Frec.Soc", fill = 0) %>%  comparison.cloud (scale=c(3,.7), colors = c ("indianred3","royalblue2"),
+                 title.size=2.5, max.words = 200, random.order=FALSE, use.r.layout=TRUE)
+```
+## 3. Cantidad de palabras diferentes utilizadas por pais.
+
+```{r}
+#Calculo palabras por sociedad.
+palabras.soc <- df %>% 
+  select(texto, n_texto, society, country) %>% 
+  group_by(society) %>% 
+ summarise(Palabras.soc = length(texto)) %>% 
+  mutate()
+palabras.soc <- inner_join(df, palabras.soc)
+palabras.soc
+```
+```{r}
+palabras.soc %>% 
+  select(texto, n_texto, society, country, Palabras.soc)%>% 
+  group_by(society, country, Palabras.soc) %>% 
+  summarise(palabras = length(texto)) %>% 
+ggplot(aes(x = fct_reorder(society, palabras), y = palabras, fill = Palabras.soc)) +
+geom_col() +
+labs(title = "N?mero de palabras distintas utilizadas por especialidad y pa?s", y = "Palabras distintas", x = "Especialidad") +
+  theme_minimal() +
+  coord_flip() + 
+  theme(plot.title = element_text(hjust = 0.5))+
+  facet_grid(.~country)
+ggsave("Numeropalabrasdiferentes.png", width = 10, height = 5)
+```
